@@ -8,8 +8,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/lib"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
 	"github.com/spf13/viper"
 )
 
@@ -140,6 +141,13 @@ certification_project_id: mycertid`
 
 	Context("When instantiating a checkContainerRunner", func() {
 		var cfg *runtime.Config
+
+		BeforeEach(func() {
+			cfg = &runtime.Config{
+				Image:          "quay.io/example/foo:latest",
+				ResponseFormat: formatters.DefaultFormat,
+			}
+		})
 
 		Context("and the user did not pass the submit flag", func() {
 			var origSubmitValue bool
