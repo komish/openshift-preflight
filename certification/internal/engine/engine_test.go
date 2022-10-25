@@ -95,8 +95,8 @@ var _ = Describe("Execute Checks tests", func() {
 
 		emptyConfig := runtime.Config{}
 		engine = CraneEngine{
-			Config: emptyConfig.ReadOnly(), // must pass a config to avoid nil pointer errors
-			Image:  src,
+			DockerConfig: emptyConfig.DockerConfig,
+			Image:        src,
 			Checks: []certification.Check{
 				goodCheck,
 				errorCheck,

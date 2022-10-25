@@ -5,6 +5,7 @@
 package artifacts
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -61,4 +62,46 @@ func WriteFile(filename string, contents io.Reader) (string, error) {
 // Path will return the artifacts directory.
 func Path() string {
 	return ads
+}
+
+// ContextWithWriter adds ArtifactWriter w to the context ctx.
+func ContextWithWriter(ctx context.Context, w ArtifactWriter) context.Context {
+	return context.WithValue(ctx, contextKey(), w)
+}
+
+// WriterFromContext returns the writer from the context, or nil.
+func WriterFromContext(ctx context.Context) ArtifactWriter {
+	w := ctx.Value(contextKey())
+	if writer, ok := w.(ArtifactWriter); ok {
+		return writer
+	}
+
+	return nil // TODO(Jose): Return a noop ArtifactWriter?
+}
+
+// artifactsWriterContextKey is a key used to store/retrieve ArtifactsWriter in/from context.Context.
+type artifactsWriterContextKey string
+
+// contextKey returns the context key for an Artifacts Writer.
+func contextKey() artifactsWriterContextKey {
+	return artifactsWriterContextKey("ArtifactWriter")
+}
+
+// ArtifactWriter describes functionality required for writing artifacts.
+// TODO(Jose): We technically shouldn't need this here because this package should
+// contain implementations, and the library package should contain the interface.
+//
+// Move this where it should be after the PoC has been demonstrated.
+type ArtifactWriter interface {
+	WriteFile(filename string, contents io.Reader) (string, error)
+}
+
+// resolveFullPath resolves the full path of s if s is a relative path.
+func resolveFullPath(s string) string {
+	fullPath := s
+	if !strings.HasPrefix(s, "/") {
+		cwd, _ := os.Getwd()
+		fullPath = filepath.Join(cwd, s)
+	}
+	return fullPath
 }

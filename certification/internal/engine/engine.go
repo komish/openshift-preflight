@@ -39,7 +39,9 @@ import (
 // CraneEngine implements a certification.CheckEngine, and leverage crane to interact with
 // the container registry and target image.
 type CraneEngine struct {
-	Config certification.Config
+	// DockerConfig is the credential required to pull the image.
+	DockerConfig string
+	// Config certification.Config
 	// Image is what is being tested, and should contain the
 	// fully addressable path (including registry, namespaces, etc)
 	// to the image
@@ -61,10 +63,6 @@ type CraneEngine struct {
 func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 	log.Debug("target image: ", c.Image)
 
-	if c.Config == nil {
-		return fmt.Errorf("a runtime configuration was not provided")
-	}
-
 	// prepare crane runtime options, if necessary
 	options := []crane.Option{
 		crane.WithContext(ctx),
@@ -76,7 +74,7 @@ func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 				// However, as long as we pass this same DockerConfig
 				// value downstream, it shouldn't matter if the
 				// keychain is reconfigured downstream.
-				authn.WithDockerConfig(c.Config.DockerConfig()),
+				authn.WithDockerConfig(c.DockerConfig),
 			),
 		),
 		crane.WithPlatform(&cranev1.Platform{
@@ -217,7 +215,7 @@ func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 
 	if c.IsBundle { // for operators:
 		// hash the contents of the bundle.
-		md5sum, err := generateBundleHash(c.imageRef.ImageFSPath)
+		md5sum, err := generateBundleHash(ctx, c.imageRef.ImageFSPath)
 		if err != nil {
 			log.Errorf("could not generate bundle hash: %v", err)
 		}
@@ -267,7 +265,7 @@ func tagDigestBindingInfo(providedIdentifier string, resolvedDigest string) (msg
 	), log.Info
 }
 
-func generateBundleHash(bundlePath string) (string, error) {
+func generateBundleHash(ctx context.Context, bundlePath string) (string, error) {
 	files := make(map[string]string)
 	fileSystem := os.DirFS(bundlePath)
 
@@ -302,9 +300,12 @@ func generateBundleHash(bundlePath string) (string, error) {
 		hashBuffer.WriteString(fmt.Sprintf("%s  %s\n", k, files[k]))
 	}
 
-	_, err := artifacts.WriteFile("hashes.txt", &hashBuffer)
-	if err != nil {
-		return "", fmt.Errorf("could not write hash file to artifacts dir: %w", err)
+	artifactsWriter := artifacts.WriterFromContext(ctx)
+	if artifactsWriter != nil {
+		_, err := artifactsWriter.WriteFile("hashes.txt", &hashBuffer)
+		if err != nil {
+			return "", fmt.Errorf("could not write hash file to artifacts dir: %w", err)
+		}
 	}
 
 	sum := fmt.Sprintf("%x", md5.Sum(hashBuffer.Bytes()))
@@ -493,12 +494,15 @@ func writeCertImage(ctx context.Context, imageRef certification.ImageReference) 
 		return fmt.Errorf("could not marshal cert image: %w", err)
 	}
 
-	fileName, err := artifacts.WriteFile(certification.DefaultCertImageFilename, bytes.NewReader(certImageJSON))
-	if err != nil {
-		return fmt.Errorf("failed to save file to artifacts directory: %w", err)
-	}
+	artifactWriter := artifacts.WriterFromContext(ctx)
+	if artifactWriter != nil {
+		fileName, err := artifactWriter.WriteFile(certification.DefaultCertImageFilename, bytes.NewReader(certImageJSON))
+		if err != nil {
+			return fmt.Errorf("failed to save file to artifacts directory: %w", err)
+		}
 
-	log.Tracef("image config written to disk: %s", fileName)
+		log.Tracef("image config written to disk: %s", fileName)
+	}
 
 	return nil
 }
@@ -562,12 +566,14 @@ func writeRPMManifest(ctx context.Context, containerFSPath string) error {
 		return fmt.Errorf("could not marshal rpm manifest: %w", err)
 	}
 
-	fileName, err := artifacts.WriteFile(certification.DefaultRPMManifestFilename, bytes.NewReader(rpmManifestJSON))
-	if err != nil {
-		return fmt.Errorf("failed to save file to artifacts directory: %w", err)
-	}
+	if artifactWriter := artifacts.WriterFromContext(ctx); artifactWriter != nil {
+		fileName, err := artifactWriter.WriteFile(certification.DefaultRPMManifestFilename, bytes.NewReader(rpmManifestJSON))
+		if err != nil {
+			return fmt.Errorf("failed to save file to artifacts directory: %w", err)
+		}
 
-	log.Tracef("rpm manifest written to disk: %s", fileName)
+		log.Tracef("rpm manifest written to disk: %s", fileName)
+	}
 
 	return nil
 }

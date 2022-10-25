@@ -68,7 +68,7 @@ var _ = Describe("Preflight Check Func", func() {
 		Context("with a customized artifacts directory", func() {
 			It("should set the artifacts directory accordingly", func() {
 				// it's possible this will throw an error, but we dont' care for this test.
-				_ = PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				_ = PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(artifacts.Path()).To(Equal(localArtifactsDir))
 			})
 		})
@@ -79,7 +79,7 @@ var _ = Describe("Preflight Check Func", func() {
 			})
 
 			It("should throw an error", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("some result writer error"))
 			})
@@ -92,7 +92,7 @@ var _ = Describe("Preflight Check Func", func() {
 				eng = fakeCheckEngine{errorRunningChecks: true, errorMsg: msg}
 			})
 			It("should thrown an error", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(msg))
 			})
@@ -106,7 +106,7 @@ var _ = Describe("Preflight Check Func", func() {
 			})
 
 			It("should throw an error", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(msg))
 			})
@@ -117,7 +117,7 @@ var _ = Describe("Preflight Check Func", func() {
 				cfg.WriteJUnit = true
 			})
 			It("should write a junit file in the artifacts directory", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(path.Join(artifacts.Path(), "results-junit.xml")).To(BeAnExistingFile())
 			})
@@ -134,7 +134,7 @@ var _ = Describe("Preflight Check Func", func() {
 			})
 
 			It("should throw an error", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(msg))
 			})
@@ -146,7 +146,7 @@ var _ = Describe("Preflight Check Func", func() {
 			})
 
 			It("should complete with no errors", func() {
-				err := PreflightCheck(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
+				err := PreflightCheck_(context.TODO(), cfg, pc, eng, fmttr, rw, rs)
 				Expect(err).ToNot(HaveOccurred())
 			})
 		})

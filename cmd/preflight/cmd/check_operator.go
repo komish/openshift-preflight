@@ -89,7 +89,7 @@ func checkOperatorRunE(cmd *cobra.Command, args []string) error {
 
 	// Run the operator check
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck(ctx,
+	return lib.PreflightCheck_(ctx,
 		checkOperator.Cfg,
 		nil, // no pyxisClient is necessary
 		checkOperator.Eng,

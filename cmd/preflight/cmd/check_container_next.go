@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	preflight "github.com/redhat-openshift-ecosystem/openshift-preflight"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
@@ -16,18 +18,18 @@ import (
 	"github.com/spf13/viper"
 )
 
-var submit bool
+// var submit bool
 
-func checkContainerCmd() *cobra.Command {
+func checkContainerNextCmd() *cobra.Command {
 	checkContainerCmd := &cobra.Command{
-		Use:   "container",
-		Short: "Run checks for a container",
+		Use:   "containerNext",
+		Short: "Run checks for a container NEXT",
 		Long:  `This command will run the Certification checks for a container image. `,
 		Args:  checkContainerPositionalArgs,
 		// this fmt.Sprintf is in place to keep spacing consistent with cobras two spaces that's used in: Usage, Flags, etc
 		Example: fmt.Sprintf("  %s", "preflight check container quay.io/repo-name/container-name:version"),
 		PreRunE: validateCertificationProjectID,
-		RunE:    checkContainerRunE,
+		RunE:    checkContainerNextRunE,
 	}
 
 	checkContainerCmd.Flags().BoolVarP(&submit, "submit", "s", false, "submit check container results to red hat")
@@ -51,7 +53,7 @@ func checkContainerCmd() *cobra.Command {
 }
 
 // checkContainerRunE executes checkContainer using the user args to inform the execution.
-func checkContainerRunE(cmd *cobra.Command, args []string) error {
+func checkContainerNextRunE(cmd *cobra.Command, args []string) error {
 	log.Info("certification library version ", version.Version.String())
 	ctx := cmd.Context()
 	containerImage := args[0]
@@ -70,19 +72,27 @@ func checkContainerRunE(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	checkcontainer := preflight.NewContainerCheck(
+		cfg.Image,
+		preflight.WithCertificationProject(cfg.CertificationProjectID, cfg.PyxisAPIToken),
+		preflight.WithDockerConfigJSON(cfg.DockerConfig),
+		// TODO(JOSE) What other flags for the CLI should translate to execution options? PyxisEnv/Host?
+	)
+
 	// Run the  container check.
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck_(ctx,
-		checkContainer.Cfg,
-		checkContainer.Pc,
-		checkContainer.Eng,
+	return lib.PreflightCheck(ctx,
+		checkContainer.Cfg, // Does PreflightCheck need a Config value anymore?
+		func(ctx context.Context) (runtime.Results, error) {
+			return checkcontainer.Run(ctx)
+		},
 		checkContainer.Formatter,
 		checkContainer.Rw,
 		checkContainer.Rs,
 	)
 }
 
-func checkContainerPositionalArgs(cmd *cobra.Command, args []string) error {
+func checkContainerNextPositionalArgs(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("a container image positional argument is required")
 	}
@@ -117,25 +127,6 @@ func checkContainerPositionalArgs(cmd *cobra.Command, args []string) error {
 		if strings.HasPrefix(viper.GetString("pyxis_api_token"), "--") || strings.HasPrefix(viper.GetString("certification_project_id"), "--") {
 			return fmt.Errorf("pyxis API token and certification ID are required when --submit is present")
 		}
-	}
-
-	return nil
-}
-
-// validateCertificationProjectID validates that the certification project id is in the proper format
-// and throws an error if the value provided is in a legacy format that is not usable to query pyxis
-func validateCertificationProjectID(cmd *cobra.Command, args []string) error {
-	certificationProjectID := viper.GetString("certification_project_id")
-	// splitting the certification project id into parts. if there are more than 2 elements in the array,
-	// we know they inputted a legacy project id, which can not be used to query pyxis
-	parts := strings.Split(certificationProjectID, "-")
-
-	if len(parts) > 2 {
-		return fmt.Errorf("certification project id: %s is improperly formatted see help command for instructions on obtaining proper value", certificationProjectID)
-	}
-
-	if parts[0] == "ospid" {
-		viper.Set("certification_project_id", parts[1])
 	}
 
 	return nil

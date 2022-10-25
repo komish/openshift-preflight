@@ -41,6 +41,8 @@ type PyxisClient interface {
 // If the the CertificationProjectID, PyxisAPIToken, or PyxisHost are empty, then nil is returned.
 // Callers should treat a nil pyxis client as an indicator that pyxis calls should not be made.
 //
+// TODO(JOSE): Do we even need this anymore? We're just calling certification/pyxis directly in the new lib.
+//
 //nolint:unparam // ctx is unused. Keep for future use.
 func NewPyxisClient(ctx context.Context, cfg certification.Config) PyxisClient {
 	if cfg.CertificationProjectID() == "" || cfg.PyxisAPIToken() == "" || cfg.PyxisHost() == "" {
@@ -51,6 +53,20 @@ func NewPyxisClient(ctx context.Context, cfg certification.Config) PyxisClient {
 		cfg.PyxisHost(),
 		cfg.PyxisAPIToken(),
 		cfg.CertificationProjectID(),
+		&http.Client{Timeout: 60 * time.Second},
+	)
+}
+
+// TODO(JOSE) This should replace NewPyxisClient when things have been wired up
+func NewPyxisClientV2(ctx context.Context, projectID, token, host string) PyxisClient {
+	if projectID == "" || token == "" || host == "" {
+		return nil
+	}
+
+	return pyxis.NewPyxisClient(
+		host,
+		token,
+		projectID,
 		&http.Client{Timeout: 60 * time.Second},
 	)
 }
