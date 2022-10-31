@@ -208,7 +208,7 @@ func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 
 	if c.IsBundle { // for operators:
 		// hash the contents of the bundle.
-		md5sum, err := generateBundleHash(c.imageRef.ImageFSPath)
+		md5sum, err := generateBundleHash(ctx, c.imageRef.ImageFSPath)
 		if err != nil {
 			log.Errorf("could not generate bundle hash: %v", err)
 		}
@@ -258,7 +258,7 @@ func tagDigestBindingInfo(providedIdentifier string, resolvedDigest string) (msg
 	), log.Info
 }
 
-func generateBundleHash(bundlePath string) (string, error) {
+func generateBundleHash(ctx context.Context, bundlePath string) (string, error) {
 	files := make(map[string]string)
 	fileSystem := os.DirFS(bundlePath)
 
@@ -293,9 +293,12 @@ func generateBundleHash(bundlePath string) (string, error) {
 		hashBuffer.WriteString(fmt.Sprintf("%s  %s\n", k, files[k]))
 	}
 
-	_, err := artifacts.WriteFile("hashes.txt", &hashBuffer)
-	if err != nil {
-		return "", fmt.Errorf("could not write hash file to artifacts dir: %w", err)
+	artifactsWriter := artifacts.WriterFromContext(ctx)
+	if artifactsWriter != nil {
+		_, err := artifactsWriter.WriteFile("hashes.txt", &hashBuffer)
+		if err != nil {
+			return "", fmt.Errorf("could not write hash file to artifacts dir: %w", err)
+		}
 	}
 
 	sum := fmt.Sprintf("%x", md5.Sum(hashBuffer.Bytes()))
@@ -484,12 +487,15 @@ func writeCertImage(ctx context.Context, imageRef certification.ImageReference) 
 		return fmt.Errorf("could not marshal cert image: %w", err)
 	}
 
-	fileName, err := artifacts.WriteFile(certification.DefaultCertImageFilename, bytes.NewReader(certImageJSON))
-	if err != nil {
-		return fmt.Errorf("failed to save file to artifacts directory: %w", err)
-	}
+	artifactWriter := artifacts.WriterFromContext(ctx)
+	if artifactWriter != nil {
+		fileName, err := artifactWriter.WriteFile(certification.DefaultCertImageFilename, bytes.NewReader(certImageJSON))
+		if err != nil {
+			return fmt.Errorf("failed to save file to artifacts directory: %w", err)
+		}
 
-	log.Tracef("image config written to disk: %s", fileName)
+		log.Tracef("image config written to disk: %s", fileName)
+	}
 
 	return nil
 }
@@ -553,12 +559,14 @@ func writeRPMManifest(ctx context.Context, containerFSPath string) error {
 		return fmt.Errorf("could not marshal rpm manifest: %w", err)
 	}
 
-	fileName, err := artifacts.WriteFile(certification.DefaultRPMManifestFilename, bytes.NewReader(rpmManifestJSON))
-	if err != nil {
-		return fmt.Errorf("failed to save file to artifacts directory: %w", err)
-	}
+	if artifactWriter := artifacts.WriterFromContext(ctx); artifactWriter != nil {
+		fileName, err := artifactWriter.WriteFile(certification.DefaultRPMManifestFilename, bytes.NewReader(rpmManifestJSON))
+		if err != nil {
+			return fmt.Errorf("failed to save file to artifacts directory: %w", err)
+		}
 
-	log.Tracef("rpm manifest written to disk: %s", fileName)
+		log.Tracef("rpm manifest written to disk: %s", fileName)
+	}
 
 	return nil
 }

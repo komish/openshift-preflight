@@ -199,10 +199,18 @@ func PreflightCheck_(
 	rw ResultWriter,
 	rs ResultSubmitter,
 ) error {
+	fsArtifactWriterOpts := []artifacts.FilesystemWriterOption{}
 	// configure the artifacts directory if the user requested a different directory.
 	if cfg.Artifacts != "" {
-		artifacts.SetDir(cfg.Artifacts)
+		fsArtifactWriterOpts = append(fsArtifactWriterOpts, artifacts.WithDirectory(cfg.Artifacts))
 	}
+
+	aw, err := artifacts.NewFilesystemWriter(fsArtifactWriterOpts...)
+	if err != nil {
+		return err
+	}
+
+	ctx = artifacts.ContextWithWriter(ctx, aw)
 
 	// create the results file early to catch cases where we are not
 	// able to write to the filesystem before we attempt to execute checks.
@@ -262,11 +270,13 @@ func writeJUnit(ctx context.Context, results runtime.Results) error {
 		return err
 	}
 
-	junitFilename, err := artifacts.WriteFile("results-junit.xml", bytes.NewReader((junitResults)))
-	if err != nil {
-		return err
+	if aw := artifacts.WriterFromContext(ctx); aw != nil {
+		junitFilename, err := aw.WriteFile("results-junit.xml", bytes.NewReader((junitResults)))
+		if err != nil {
+			return err
+		}
+		log.Tracef("JUnitXML written to %s", junitFilename)
 	}
-	log.Tracef("JUnitXML written to %s", junitFilename)
 
 	return nil
 }

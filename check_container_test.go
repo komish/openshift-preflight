@@ -17,5 +17,5 @@ func TestContainerCheck(t *testing.T) {
 	f, _ := formatters.NewByName("json")
 	b, _ := f.Format(context.TODO(), results)
 
-	t.Log(string(b))
+	t.Log("results", string(b))
 }

@@ -3,11 +3,14 @@ package preflight
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/engine"
+
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/artifacts"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/policy"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/pyxis"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
@@ -127,3 +130,14 @@ type containerCheck struct {
 	pyxisToken             string
 	pyxisHost              string
 }
+
+func configureArtifactWriter(ctx context.Context) context.Context {
+	w, err := artifacts.NewMapWriter()
+	if err != nil {
+		panic(err)
+	}
+
+	return artifacts.ContextWithWriter(ctx, w)
+}
+
+type Artifacts = map[string]io.Reader
