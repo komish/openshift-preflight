@@ -11,11 +11,12 @@ import (
 
 func TestContainerCheck(t *testing.T) {
 	chk := preflight.NewContainerCheck("quay.io/opdev/simple-demo-operator:latest")
-	results, err := chk.Run(context.TODO())
+	results, artf, err := chk.Run(context.TODO())
 	assert.NoError(t, err, "should not throw an error")
 
 	f, _ := formatters.NewByName("json")
 	b, _ := f.Format(context.TODO(), results)
 
-	t.Log(string(b))
+	t.Log("artifacts:", artf)
+	t.Log("results", string(b))
 }

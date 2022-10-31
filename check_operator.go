@@ -42,6 +42,8 @@ func (c operatorCheck) Run(ctx context.Context) (runtime.Results, error) {
 		return runtime.Results{}, ErrIndexImageEmpty
 	}
 
+	ctx = configureArtifactWriter(ctx)
+
 	cfg := runtime.Config{
 		Image:          c.image,
 		Policy:         policy.PolicyOperator,
