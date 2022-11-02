@@ -36,7 +36,9 @@ import (
 // CraneEngine implements a certification.CheckEngine, and leverage crane to interact with
 // the container registry and target image.
 type CraneEngine struct {
-	Config certification.Config
+	// DockerConfig is the credential required to pull the image.
+	DockerConfig string
+	// Config certification.Config
 	// Image is what is being tested, and should contain the
 	// fully addressable path (including registry, namespaces, etc)
 	// to the image
@@ -58,10 +60,6 @@ type CraneEngine struct {
 func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 	log.Debug("target image: ", c.Image)
 
-	if c.Config == nil {
-		return fmt.Errorf("a runtime configuration was not provided")
-	}
-
 	// prepare crane runtime options, if necessary
 	options := []crane.Option{
 		crane.WithContext(ctx),
@@ -73,7 +71,7 @@ func (c *CraneEngine) ExecuteChecks(ctx context.Context) error {
 				// However, as long as we pass this same DockerConfig
 				// value downstream, it shouldn't matter if the
 				// keychain is reconfigured downstream.
-				authn.WithDockerConfig(c.Config.DockerConfig()),
+				authn.WithDockerConfig(c.DockerConfig),
 			),
 		),
 		retryOnceAfter(5 * time.Second),

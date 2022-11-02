@@ -139,6 +139,60 @@ func GetContainerPolicyExceptions(ctx context.Context, pc PyxisClient) (policy.P
 func PreflightCheck(
 	ctx context.Context,
 	cfg *runtime.Config,
+	runChecks func(context.Context) (runtime.Results, error),
+	formatter formatters.ResponseFormatter,
+	rw ResultWriter,
+	rs ResultSubmitter,
+) error {
+	// create the results file early to catch cases where we are not
+	// able to write to the filesystem before we attempt to execute checks.
+	// TODO(JOSE): When Artifacts Writer lands, get it here and write the results.
+	resultsFilePath, err := artifacts.WriteFile(resultsFilenameWithExtension(formatter.FileExtension()), strings.NewReader(""))
+	if err != nil {
+		return err
+	}
+	resultsFile, err := rw.OpenFile(resultsFilePath)
+	if err != nil {
+		return err
+	}
+	defer resultsFile.Close()
+
+	resultsOutputTarget := io.MultiWriter(os.Stdout, resultsFile)
+
+	results, err := runChecks(ctx)
+	if err != nil {
+		return err
+	}
+
+	// return results to the user and then close output files
+	formattedResults, err := formatter.Format(ctx, results)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(resultsOutputTarget, string(formattedResults))
+
+	if cfg.WriteJUnit {
+		if err := writeJUnit(ctx, results); err != nil {
+			return err
+		}
+	}
+
+	if cfg.Submit {
+		if err := rs.Submit(ctx); err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Preflight result: %s", convertPassedOverall(results.PassedOverall))
+
+	return nil
+}
+
+// PreflightCheck_ executes checks, interacts with pyxis, format output, writes, and submits results.
+func PreflightCheck_(
+	ctx context.Context,
+	cfg *runtime.Config,
 	pc PyxisClient, //nolint:unparam // PyxisClient is currently unused.
 	eng engine.CheckEngine,
 	formatter formatters.ResponseFormatter,
