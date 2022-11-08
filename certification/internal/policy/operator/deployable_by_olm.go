@@ -65,6 +65,10 @@ func (p *DeployableByOlmCheck) initClient() error {
 	if err := openshift.AddSchemes(scheme); err != nil {
 		return fmt.Errorf("could not add new schemes to client: %w", err)
 	}
+
+	// TODO(): GetConfig generates a rest config from environment paths. We already have
+	// the Kubeconfig at this point, so we should potentially find another way to generate
+	// a rest config that doesn't rely on ctrl's implicit locations for it.
 	kubeconfig, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("could not get kubeconfig: %w", err)

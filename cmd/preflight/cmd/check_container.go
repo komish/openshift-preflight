@@ -5,8 +5,11 @@ import (
 	"strings"
 
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/artifacts"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/container"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/cli"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/version"
 
@@ -62,23 +65,40 @@ func checkContainerRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	cfg.Image = containerImage
-	cfg.ResponseFormat = formatters.DefaultFormat
-
-	checkContainer, err := lib.NewCheckContainerRunner(ctx, cfg, submit)
+	artifactsWriter, err := artifacts.NewFilesystemWriter(artifacts.WithDirectory(cfg.Artifacts))
 	if err != nil {
 		return err
 	}
 
+	// Add the artifact writer to the context for use by checks.
+	ctx = artifacts.ContextWithWriter(ctx, artifactsWriter)
+
+	formatter, err := formatters.NewByName(formatters.DefaultFormat)
+	if err != nil {
+		return err
+	}
+
+	checkcontainer := container.NewCheck(
+		containerImage,
+		container.WithCertificationProject(cfg.CertificationProjectID, cfg.PyxisAPIToken),
+		container.WithDockerConfigJSONFromFile(cfg.DockerConfig),
+	)
+
+	pc := lib.NewPyxisClient(ctx, cfg.CertificationProjectID, cfg.PyxisAPIToken, cfg.PyxisHost)
+	resultSubmitter := lib.ResolveSubmitter(pc, cfg.CertificationProjectID, cfg.DockerConfig, cfg.LogFile)
+
 	// Run the  container check.
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck_(ctx,
-		checkContainer.Cfg,
-		checkContainer.Pc,
-		checkContainer.Eng,
-		checkContainer.Formatter,
-		checkContainer.Rw,
-		checkContainer.Rs,
+	return cli.RunPreflight(
+		lib.SetCallerToCLI(ctx),
+		checkcontainer.Run,
+		cli.CheckConfig{
+			IncludeJUnitResults: cfg.WriteJUnit,
+			SubmitResults:       cfg.Submit,
+		},
+		formatter,
+		&runtime.ResultWriterFile{},
+		resultSubmitter,
 	)
 }
 

@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/artifacts"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/cli"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/operator"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/version"
 
 	log "github.com/sirupsen/logrus"
@@ -17,7 +21,7 @@ import (
 func checkOperatorCmd() *cobra.Command {
 	checkOperatorCmd := &cobra.Command{
 		Use:   "operator",
-		Short: "Run checks for an Operator",
+		Short: "Run checks for an Operator NEXT",
 		Long:  `This command will run the Certification checks for an Operator bundle image. `,
 		Args:  checkOperatorPositionalArgs,
 		// this fmt.Sprintf is in place to keep spacing consistent with cobras two spaces that's used in: Usage, Flags, etc
@@ -77,25 +81,31 @@ func checkOperatorRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	cfg.Image = operatorImage
-	cfg.ResponseFormat = formatters.DefaultFormat
-	cfg.Bundle = true
-	cfg.Scratch = true
-
-	checkOperator, err := lib.NewCheckOperatorRunner(ctx, cfg)
+	ctx, _, err = configureArtifactsWriter(ctx, cfg.Artifacts)
 	if err != nil {
 		return err
 	}
 
-	// Run the operator check
+	formatter, err := formatters.NewByName(formatters.DefaultFormat)
+	if err != nil {
+		return err
+	}
+
+	opts := generateOperatorCheckOptions(cfg)
+
+	checkoperator := operator.NewCheck(operatorImage, cfg.Kubeconfig, cfg.IndexImage, opts...)
+
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck_(ctx,
-		checkOperator.Cfg,
-		nil, // no pyxisClient is necessary
-		checkOperator.Eng,
-		checkOperator.Formatter,
-		checkOperator.Rw,
-		&lib.NoopSubmitter{}, // we do not submit these results.
+	return cli.RunPreflight(
+		lib.SetCallerToCLI(ctx),
+		checkoperator.Run,
+		cli.CheckConfig{
+			IncludeJUnitResults: cfg.WriteJUnit,
+			SubmitResults:       false, // operator results are not submitted.
+		},
+		formatter,
+		&runtime.ResultWriterFile{},
+		&lib.NoopSubmitter{},
 	)
 }
 
@@ -113,4 +123,35 @@ func checkOperatorPositionalArgs(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// generateOperatorCheckOptions returns options to be used with OperatorCheck based on cfg.
+func generateOperatorCheckOptions(cfg *runtime.Config) []operator.Option {
+	opts := []operator.Option{
+		operator.WithDockerConfigJSONFromFile(cfg.DockerConfig),
+		// empty value is handled downstream for below options, so we always add them here.
+		operator.WithScorecardImage(cfg.ScorecardImage),
+		operator.WithScorecardServiceAccount(cfg.ServiceAccount),
+		operator.WithScorecardNamespace(cfg.Namespace),
+	}
+
+	if cfg.ScorecardWaitTime != "" {
+		opts = append(opts, operator.WithScorecardWaitTime(cfg.ScorecardWaitTime))
+	}
+
+	if cfg.Channel != "" {
+		opts = append(opts, operator.WithOperatorChannel(cfg.Channel))
+	}
+
+	return opts
+}
+
+// configureArtifactsWriter adds a filesystem ArtifactsWriter to the context.
+func configureArtifactsWriter(ctx context.Context, dir string) (context.Context, *artifacts.FilesystemWriter, error) {
+	artifactsWriter, err := artifacts.NewFilesystemWriter(artifacts.WithDirectory(dir))
+	if err != nil {
+		return ctx, &artifacts.FilesystemWriter{}, err
+	}
+
+	return artifacts.ContextWithWriter(ctx, artifactsWriter), artifactsWriter, nil
 }
