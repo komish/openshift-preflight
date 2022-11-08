@@ -4,24 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/policy"
 )
-
-// ResolveSubmitter_ will build out a ResultSubmitter if the provided pyxisClient, pc, is not nil.
-// The pyxisClient is a required component of the submitter. If pc is nil, then a noop submitter
-// is returned instead, which does nothing.
-func ResolveSubmitter_(pc PyxisClient, cfg certification.Config) ResultSubmitter {
-	if pc != nil {
-		return &ContainerCertificationSubmitter{
-			CertificationProjectID: cfg.CertificationProjectID(),
-			Pyxis:                  pc,
-			DockerConfig:           cfg.DockerConfig(),
-			PreflightLogFile:       cfg.LogFile(),
-		}
-	}
-	return NewNoopSubmitter(true, nil)
-}
 
 func ResolveSubmitter(pc PyxisClient, projectID, dockerconfig, logfile string) ResultSubmitter {
 	if pc != nil {
