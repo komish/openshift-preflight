@@ -13,7 +13,7 @@ type MapWriter struct {
 }
 
 // NewMapWriter creates an artifact writer in memory using a map.
-func NewMapWriter() (*MapWriter, error) { // TODO: add options that would allow us to overrwrite, append, etc.
+func NewMapWriter() (*MapWriter, error) {
 	return &MapWriter{
 		files: map[string]io.Reader{},
 	}, nil
