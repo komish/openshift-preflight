@@ -5,13 +5,16 @@ import (
 	rt "runtime"
 	"strings"
 
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/artifacts"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/container"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/check"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/cli"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/runtime"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/version"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -49,7 +52,7 @@ func checkContainerCmd() *cobra.Command {
 		"If you do set it, it should include just the host, and the URI path. (env: PFLT_PYXIS_HOST)"))
 	_ = viper.BindPFlag("pyxis_host", flags.Lookup("pyxis-host"))
 
-	flags.String("pyxis-env", certification.DefaultPyxisEnv, "Env to use for Pyxis submissions.")
+	flags.String("pyxis-env", check.DefaultPyxisEnv, "Env to use for Pyxis submissions.")
 	_ = viper.BindPFlag("pyxis_env", flags.Lookup("pyxis-env"))
 
 	flags.String("certification-project-id", "", fmt.Sprintf("Certification Project ID from connect.redhat.com/projects/{certification-project-id}/overview\n"+
@@ -64,8 +67,13 @@ func checkContainerCmd() *cobra.Command {
 
 // checkContainerRunE executes checkContainer using the user args to inform the execution.
 func checkContainerRunE(cmd *cobra.Command, args []string) error {
-	log.Info("certification library version ", version.Version.String())
 	ctx := cmd.Context()
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("invalid logging configuration")
+	}
+	logger.Info("certification library version", "version", version.Version.String())
+
 	containerImage := args[0]
 
 	// Render the Viper configuration as a runtime.Config
@@ -74,23 +82,41 @@ func checkContainerRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	cfg.Image = containerImage
-	cfg.ResponseFormat = formatters.DefaultFormat
-
-	checkContainer, err := lib.NewCheckContainerRunner(ctx, cfg, submit)
+	artifactsWriter, err := artifacts.NewFilesystemWriter(artifacts.WithDirectory(cfg.Artifacts))
 	if err != nil {
 		return err
 	}
 
+	// Add the artifact writer to the context for use by checks.
+	ctx = artifacts.ContextWithWriter(ctx, artifactsWriter)
+
+	formatter, err := formatters.NewByName(formatters.DefaultFormat)
+	if err != nil {
+		return err
+	}
+
+	opts := generateContainerCheckOptions(cfg)
+
+	checkcontainer := container.NewCheck(
+		containerImage,
+		opts...,
+	)
+
+	pc := lib.NewPyxisClient(ctx, cfg.CertificationProjectID, cfg.PyxisAPIToken, cfg.PyxisHost)
+	resultSubmitter := lib.ResolveSubmitter(pc, cfg.CertificationProjectID, cfg.DockerConfig, cfg.LogFile)
+
 	// Run the  container check.
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck(ctx,
-		checkContainer.Cfg,
-		checkContainer.Pc,
-		checkContainer.Eng,
-		checkContainer.Formatter,
-		checkContainer.Rw,
-		checkContainer.Rs,
+	return cli.RunPreflight(
+		ctx,
+		checkcontainer.Run,
+		cli.CheckConfig{
+			IncludeJUnitResults: cfg.WriteJUnit,
+			SubmitResults:       cfg.Submit,
+		},
+		formatter,
+		&runtime.ResultWriterFile{},
+		resultSubmitter,
 	)
 }
 
@@ -151,4 +177,28 @@ func validateCertificationProjectID(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// generateContainerCheckOptions returns appropriate container.Options based on cfg.
+func generateContainerCheckOptions(cfg *runtime.Config) []container.Option {
+	o := []container.Option{
+		container.WithCertificationProject(cfg.CertificationProjectID, cfg.PyxisAPIToken),
+		container.WithDockerConfigJSONFromFile(cfg.DockerConfig),
+		// Always add PyxisHost, since the value is always set in viper config parsing.
+		container.WithPyxisHost(cfg.PyxisHost),
+	}
+
+	// set auth information if both are present in config.
+	if cfg.PyxisAPIToken != "" && cfg.CertificationProjectID != "" {
+		o = append(o, container.WithCertificationProject(cfg.CertificationProjectID, cfg.PyxisAPIToken))
+	}
+
+	if cfg.Insecure {
+		// Do not allow for submission if Insecure is set.
+		// This is a secondary check to be safe.
+		cfg.Submit = false
+		o = append(o, container.WithInsecureConnection())
+	}
+
+	return o
 }

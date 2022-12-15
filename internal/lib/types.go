@@ -2,6 +2,7 @@ package lib
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,13 +11,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/spf13/viper"
 
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/artifacts"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/pyxis"
-
-	log "github.com/sirupsen/logrus"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/artifacts"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/check"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/log"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/pyxis"
 )
 
 // ResultWriter defines methods associated with writing check results.
@@ -37,20 +38,18 @@ type PyxisClient interface {
 	SubmitResults(context.Context, *pyxis.CertificationInput) (*pyxis.CertificationResults, error)
 }
 
-// newPyxisClient initializes a pyxisClient with relevant information from cfg.
+// NewPyxisClient initializes a pyxisClient with relevant information from cfg.
 // If the the CertificationProjectID, PyxisAPIToken, or PyxisHost are empty, then nil is returned.
 // Callers should treat a nil pyxis client as an indicator that pyxis calls should not be made.
-//
-//nolint:unparam // ctx is unused. Keep for future use.
-func NewPyxisClient(ctx context.Context, cfg certification.Config) PyxisClient {
-	if cfg.CertificationProjectID() == "" || cfg.PyxisAPIToken() == "" || cfg.PyxisHost() == "" {
+func NewPyxisClient(ctx context.Context, projectID, token, host string) PyxisClient {
+	if projectID == "" || token == "" || host == "" {
 		return nil
 	}
 
 	return pyxis.NewPyxisClient(
-		cfg.PyxisHost(),
-		cfg.PyxisAPIToken(),
-		cfg.CertificationProjectID(),
+		host,
+		token,
+		projectID,
 		&http.Client{Timeout: 60 * time.Second},
 	)
 }
@@ -65,7 +64,8 @@ type ContainerCertificationSubmitter struct {
 }
 
 func (s *ContainerCertificationSubmitter) Submit(ctx context.Context) error {
-	log.Info("preparing results that will be submitted to Red Hat")
+	logger := logr.FromContextOrDiscard(ctx)
+	logger.Info("preparing results that will be submitted to Red Hat")
 
 	// get the project info from pyxis
 	certProject, err := s.Pyxis.GetProject(ctx)
@@ -81,7 +81,7 @@ func (s *ContainerCertificationSubmitter) Submit(ctx context.Context) error {
 		return fmt.Errorf("no certification project was returned from pyxis")
 	}
 
-	log.Tracef("CertProject: %+v", certProject)
+	logger.V(log.TRC).Info("certification project id", "project", certProject)
 
 	// only read the dockerfile if the user provides a location for the file
 	// at this point in the flow, if `cfg.DockerConfig` is empty we know the repo is public and can continue the submission flow
@@ -112,34 +112,40 @@ func (s *ContainerCertificationSubmitter) Submit(ctx context.Context) error {
 		certProject.Container.DockerConfigJSON = ""
 	}
 
-	// prepare submission. We ignore the error because nil checks for the certProject
-	// are done earlier to prevent panics, and that's the only error case for this function.
-	submission, _ := pyxis.NewCertificationInput(certProject)
+	// We need to get the artifact writer to know where our artifacts were written. We also need the
+	// Filesystem Writer here to make sure we can get the configured path.
+	// TODO: This needs to be rethought. Submission is not currently in scope for library implementations
+	// but the current implementation of this makes it impossible because the MapWriter would obviously
+	// not work here.
+	artifactWriter, ok := artifacts.WriterFromContext(ctx).(*artifacts.FilesystemWriter)
+	if artifactWriter == nil || !ok {
+		return errors.New("the artifact writer was either missing or was not supported, so results cannot be submitted")
+	}
 
-	certImage, err := os.Open(path.Join(artifacts.Path(), certification.DefaultCertImageFilename))
+	certImage, err := os.Open(path.Join(artifactWriter.Path(), check.DefaultCertImageFilename))
 	if err != nil {
 		return fmt.Errorf("could not open file for submission: %s: %w",
-			certification.DefaultCertImageFilename,
+			check.DefaultCertImageFilename,
 			err,
 		)
 	}
 	defer certImage.Close()
 
-	preflightResults, err := os.Open(path.Join(artifacts.Path(), certification.DefaultTestResultsFilename))
+	preflightResults, err := os.Open(path.Join(artifactWriter.Path(), check.DefaultTestResultsFilename))
 	if err != nil {
 		return fmt.Errorf(
 			"could not open file for submission: %s: %w",
-			certification.DefaultTestResultsFilename,
+			check.DefaultTestResultsFilename,
 			err,
 		)
 	}
 	defer preflightResults.Close()
 
-	rpmManifest, err := os.Open(path.Join(artifacts.Path(), certification.DefaultRPMManifestFilename))
+	rpmManifest, err := os.Open(path.Join(artifactWriter.Path(), check.DefaultRPMManifestFilename))
 	if err != nil {
 		return fmt.Errorf(
 			"could not open file for submission: %s: %w",
-			certification.DefaultRPMManifestFilename,
+			check.DefaultRPMManifestFilename,
 			err,
 		)
 	}
@@ -155,31 +161,32 @@ func (s *ContainerCertificationSubmitter) Submit(ctx context.Context) error {
 	}
 	defer logfile.Close()
 
-	submission.
+	// prepare submission. We ignore the error because nil checks for the certProject
+	// are done earlier to prevent panics, and that's the only error case for this function.
+	submission, err := pyxis.NewCertificationInput(ctx, certProject,
 		// The engine writes the certified image config to disk in a Pyxis-specific format.
-		WithCertImage(certImage).
+		pyxis.WithCertImage(certImage),
 		// Include Preflight's test results in our submission. pyxis.TestResults embeds them.
-		WithPreflightResults(preflightResults).
+		pyxis.WithPreflightResults(preflightResults),
 		// The certification engine writes the rpmManifest for images not based on scratch.
-		WithRPMManifest(rpmManifest).
+		pyxis.WithRPMManifest(rpmManifest),
 		// Include the preflight execution log file.
-		WithArtifact(logfile, filepath.Base(s.PreflightLogFile))
-
-	input, err := submission.Finalize()
+		pyxis.WithArtifact(logfile, filepath.Base(s.PreflightLogFile)),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to finalize data that would be sent to pyxis: %w", err)
 	}
 
-	certResults, err := s.Pyxis.SubmitResults(ctx, input)
+	certResults, err := s.Pyxis.SubmitResults(ctx, submission)
 	if err != nil {
 		return fmt.Errorf("could not submit to pyxis: %w", err)
 	}
 
-	log.Info("Test results have been submitted to Red Hat.")
-	log.Info("These results will be reviewed by Red Hat for final certification.")
-	log.Infof("The container's image id is: %s.", certResults.CertImage.ID)
-	log.Infof("Please check %s to view scan results.", BuildScanResultsURL(s.CertificationProjectID, certResults.CertImage.ID))
-	log.Infof("Please check %s to monitor the progress.", BuildOverviewURL(s.CertificationProjectID))
+	logger.Info("Test results have been submitted to Red Hat.")
+	logger.Info("These results will be reviewed by Red Hat for final certification.")
+	logger.Info(fmt.Sprintf("The container's image id is: %s.", certResults.CertImage.ID))
+	logger.Info(fmt.Sprintf("Please check %s to view scan results.", BuildScanResultsURL(s.CertificationProjectID, certResults.CertImage.ID)))
+	logger.Info(fmt.Sprintf("Please check %s to monitor the progress.", BuildOverviewURL(s.CertificationProjectID)))
 
 	return nil
 }
@@ -189,10 +196,10 @@ func (s *ContainerCertificationSubmitter) Submit(ctx context.Context) error {
 type NoopSubmitter struct {
 	emitLog bool
 	reason  string
-	log     *log.Logger
+	log     *logr.Logger
 }
 
-func NewNoopSubmitter(emitLog bool, log *log.Logger) *NoopSubmitter {
+func NewNoopSubmitter(emitLog bool, log *logr.Logger) *NoopSubmitter {
 	return &NoopSubmitter{
 		emitLog: emitLog,
 		log:     log,

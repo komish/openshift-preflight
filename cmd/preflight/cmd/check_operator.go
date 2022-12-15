@@ -1,15 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/formatters"
-	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification/runtime"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/artifacts"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/cli"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/formatters"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/runtime"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/operator"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/version"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -67,8 +72,13 @@ func ensureIndexImageConfigIsSet() error {
 
 // checkOperatorRunE executes checkOperator using the user args to inform the execution.
 func checkOperatorRunE(cmd *cobra.Command, args []string) error {
-	log.Info("certification library version ", version.Version.String())
 	ctx := cmd.Context()
+	logger, err := logr.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("invalid logging configuration")
+	}
+
+	logger.Info("certification library version", "version", version.Version.String())
 	operatorImage := args[0]
 
 	// Render the Viper configuration as a runtime.Config
@@ -77,25 +87,43 @@ func checkOperatorRunE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	cfg.Image = operatorImage
-	cfg.ResponseFormat = formatters.DefaultFormat
-	cfg.Bundle = true
-	cfg.Scratch = true
-
-	checkOperator, err := lib.NewCheckOperatorRunner(ctx, cfg)
+	ctx, _, err = configureArtifactsWriter(ctx, cfg.Artifacts)
 	if err != nil {
 		return err
 	}
 
-	// Run the operator check
+	formatter, err := formatters.NewByName(formatters.DefaultFormat)
+	if err != nil {
+		return err
+	}
+
+	opts := generateOperatorCheckOptions(cfg)
+
+	kubeconfig, err := func() ([]byte, error) {
+		kubeconfigFile, err := os.Open(cfg.Kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to open provided kubeconfig file: %s", err)
+		}
+		defer kubeconfigFile.Close()
+		return io.ReadAll(kubeconfigFile)
+	}()
+	if err != nil {
+		return fmt.Errorf("unable to read provided kubeconfig file's contents: %s", err)
+	}
+
+	checkoperator := operator.NewCheck(operatorImage, cfg.IndexImage, kubeconfig, opts...)
+
 	cmd.SilenceUsage = true
-	return lib.PreflightCheck(ctx,
-		checkOperator.Cfg,
-		nil, // no pyxisClient is necessary
-		checkOperator.Eng,
-		checkOperator.Formatter,
-		checkOperator.Rw,
-		&lib.NoopSubmitter{}, // we do not submit these results.
+	return cli.RunPreflight(
+		ctx,
+		checkoperator.Run,
+		cli.CheckConfig{
+			IncludeJUnitResults: cfg.WriteJUnit,
+			SubmitResults:       false, // operator results are not submitted.
+		},
+		formatter,
+		&runtime.ResultWriterFile{},
+		&lib.NoopSubmitter{},
 	)
 }
 
@@ -113,4 +141,39 @@ func checkOperatorPositionalArgs(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// generateOperatorCheckOptions returns options to be used with OperatorCheck based on cfg.
+func generateOperatorCheckOptions(cfg *runtime.Config) []operator.Option {
+	opts := []operator.Option{
+		operator.WithDockerConfigJSONFromFile(cfg.DockerConfig),
+		// empty value is handled downstream for below options, so we always add them here.
+		operator.WithScorecardImage(cfg.ScorecardImage),
+		operator.WithScorecardServiceAccount(cfg.ServiceAccount),
+		operator.WithScorecardNamespace(cfg.Namespace),
+	}
+
+	if cfg.ScorecardWaitTime != "" {
+		opts = append(opts, operator.WithScorecardWaitTime(cfg.ScorecardWaitTime))
+	}
+
+	if cfg.Channel != "" {
+		opts = append(opts, operator.WithOperatorChannel(cfg.Channel))
+	}
+
+	if cfg.Insecure {
+		opts = append(opts, operator.WithInsecureConnection())
+	}
+
+	return opts
+}
+
+// configureArtifactsWriter adds a filesystem ArtifactsWriter to the context.
+func configureArtifactsWriter(ctx context.Context, dir string) (context.Context, *artifacts.FilesystemWriter, error) {
+	artifactsWriter, err := artifacts.NewFilesystemWriter(artifacts.WithDirectory(dir))
+	if err != nil {
+		return ctx, &artifacts.FilesystemWriter{}, err
+	}
+
+	return artifacts.ContextWithWriter(ctx, artifactsWriter), artifactsWriter, nil
 }
