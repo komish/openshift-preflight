@@ -56,6 +56,16 @@ func (oe *openshiftClient) CreateNamespace(ctx context.Context, name string) (*c
 	logger.V(log.TRC).Info("creating namespace", "namespace", name)
 	nsSpec := corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
+			// These labels comply with OCP 4.12's PodSecurityAdmission.
+			// sqlite-based operator catalogs built with opm write to the filesystem at workdir /
+			// which requires elevated privileges.
+			// TODO: Once sqlite catalogs are no longer supported, we should be able to run restricted
+			// because file-based catalogs don't write to the filesystem.
+			Labels: map[string]string{
+				"security.openshift.io/scc.podSecurityLabelSync": "false",
+				"pod-security.kubernetes.io/enforce":             "privileged",
+				"pod-security.kubernetes.io/enforce-version":     "latest",
+			},
 			Name: name,
 		},
 	}
@@ -247,6 +257,9 @@ func (oe openshiftClient) CreateCatalogSource(ctx context.Context, data CatalogS
 			Namespace: namespace,
 		},
 		Spec: operatorsv1alpha1.CatalogSourceSpec{
+			// GrpcPodConfig: &operatorsv1alpha1.GrpcPodConfig{
+			// 	SecurityContextConfig: operatorsv1alpha1.Legacy,
+			// },
 			SourceType:  operatorsv1alpha1.SourceTypeGrpc,
 			Image:       data.Image,
 			DisplayName: data.Name,
