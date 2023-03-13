@@ -9,8 +9,8 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-containerregistry v0.13.0
 	github.com/knqyf263/go-rpmdb v0.0.0-20220629110411-9a3bd2ebb923
-	github.com/onsi/ginkgo/v2 v2.8.4
-	github.com/onsi/gomega v1.27.2
+	github.com/onsi/ginkgo/v2 v2.9.0
+	github.com/onsi/gomega v1.27.3
 	github.com/openshift/api v0.0.0-20230223193310-d964c7a58d75
 	github.com/openshift/client-go v0.0.0-20230120202327-72f107311084
 	github.com/operator-framework/api v0.16.0
@@ -54,7 +54,7 @@ require (
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/cel-go v0.12.6 // indirect
 	github.com/google/gnostic v0.5.7-v3refs // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
