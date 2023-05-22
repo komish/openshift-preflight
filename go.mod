@@ -12,7 +12,7 @@ require (
 	github.com/knqyf263/go-rpmdb v0.0.0-20230517124904-b97c85e63254
 	github.com/onsi/ginkgo/v2 v2.9.2
 	github.com/onsi/gomega v1.27.6
-	github.com/openshift/api v0.0.0-20230223193310-d964c7a58d75
+	github.com/openshift/api v3.9.0+incompatible
 	github.com/openshift/client-go v0.0.0-20230120202327-72f107311084
 	github.com/operator-framework/api v0.17.5
 	github.com/operator-framework/operator-manifest-tools v0.2.3-0.20230227155221-caa8b9e1ab12
