@@ -9,10 +9,16 @@ RELEASE_TAG ?= "0.0.0"
 PLATFORMS=linux
 ARCHITECTURES=amd64 arm64 ppc64le s390x
 
+.PHONY: run
+run:
+	# Set ARGS to pass flags to this Make target. E.g. ARGS="--version"
+	ARGS={"$(ARGS)":""}
+	go run cmd/preflight/main.go $(ARGS)
+
 .PHONY: build
 build:
-	CGO_ENABLED=0 go build -o $(BINARY) -ldflags "-X github.com/redhat-openshift-ecosystem/openshift-preflight/version.commit=$(VERSION) -X github.com/redhat-openshift-ecosystem/openshift-preflight/version.version=$(RELEASE_TAG)" cmd/preflight/main.go
-	@ls | grep -e '^preflight$$' &> /dev/null
+	go build -o $(BINARY) -ldflags "-X github.com/redhat-openshift-ecosystem/openshift-preflight/version.commit=$(VERSION) -X github.com/redhat-openshift-ecosystem/openshift-preflight/version.version=$(RELEASE_TAG)" cmd/preflight/main.go
+	@ls | grep -e '^$(BINARY)$$' &> /dev/null
 
 .PHONY: build-multi-arch
 build-multi-arch: $(addprefix build-linux-,$(ARCHITECTURES))
@@ -44,16 +50,20 @@ image-build:
 image-push:
 	$(IMAGE_BUILDER) push $(IMAGE_REPO)/preflight:$(VERSION)
 
+.PHONY: update-plugin.container-cert
+update-plugin.container-cert:
+	go get github.com/opdev/container-certification
+
 .PHONY: test
 test:
-	go test -v $$(go list ./... | grep -v e2e | grep -vE "/x($$|/)") \
+	go test -v $$(go list ./... | grep -v e2e) \
 	-ldflags "-X github.com/redhat-openshift-ecosystem/openshift-preflight/version.commit=bar -X github.com/redhat-openshift-ecosystem/openshift-preflight/version.version=foo"
 
 .PHONY: cover
 cover:
 	go test -v \
 	 -ldflags "-X github.com/redhat-openshift-ecosystem/openshift-preflight/version.commit=bar -X github.com/redhat-openshift-ecosystem/openshift-preflight/version.version=foo" \
-	 $$(go list ./... | grep -v e2e | grep -vE "/x($$|/)") \
+	 $$(go list ./... | grep -v e2e) \
 	 -race \
 	 -cover -coverprofile=coverage.out
 
@@ -64,27 +74,6 @@ vet:
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter checks.
 	$(GOLANGCI_LINT) run
-	
-.PHONY: test-e2e
-test-e2e:
-	./test/e2e/operator-test.sh
-
-.PHONY: test-e2e-customized-env
-test-e2e-customized-env:
-	./test/e2e/operator-test-customized-env.sh
-
-.PHONY: ensure-release-tag-set
-ensure-release-tag-set:
-	echo "Make sure the RELEASE_TAG value is set."
-	test $(RELEASE_TAG) != "0.0.0"
-
-
-.PHONY: verify-image
-verify-image: cosign ensure-release-tag-set
-	${COSIGN} verify \
-		--certificate-identity https://github.com/redhat-openshift-ecosystem/openshift-preflight/.github/workflows/build-multiarch.yml@refs/tags/$(RELEASE_TAG) \
-		--certificate-oidc-issuer https://token.actions.githubusercontent.com \
-		quay.io/opdev/preflight:$(RELEASE_TAG)
 
 .PHONY: clean
 clean:
@@ -106,11 +95,6 @@ GOFUMPT = $(shell pwd)/bin/gofumpt
 gofumpt: ## Download envtest-setup locally if necessary.
 	$(call go-install-tool,$(GOFUMPT),mvdan.cc/gofumpt@latest)
 
-COSIGN = $(shell pwd)/bin/cosign
-COSIGN_VERSION ?= v2.0.0
-cosign: ## Download envtest-setup locally if necessary.
-	$(call go-install-tool,$(COSIGN),github.com/sigstore/cosign/v2/cmd/cosign@$(COSIGN_VERSION))
-
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -119,3 +103,4 @@ define go-install-tool
 GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
 }
 endef
+

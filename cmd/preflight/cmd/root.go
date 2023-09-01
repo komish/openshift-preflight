@@ -46,6 +46,7 @@ func rootCmd() *cobra.Command {
 	rootCmd.AddCommand(runtimeAssetsCmd())
 	rootCmd.AddCommand(supportCmd())
 	rootCmd.AddCommand(experimentalCmd())
+	rootCmd.AddCommand(versionCommand())
 
 	return rootCmd
 }
