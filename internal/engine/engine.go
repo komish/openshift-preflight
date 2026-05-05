@@ -696,6 +696,7 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 				cfg.CertificationProjectID,
 				&http.Client{Timeout: 60 * time.Second})),
 			&containerpol.HasProhibitedContainerName{},
+			&containerpol.ContainsKernelObjectsCheck{},
 		}, nil
 	case policy.PolicyRoot:
 		return []check.Check{
@@ -712,6 +713,7 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 				cfg.CertificationProjectID,
 				&http.Client{Timeout: 60 * time.Second})),
 			&containerpol.HasProhibitedContainerName{},
+			&containerpol.ContainsKernelObjectsCheck{},
 		}, nil
 	case policy.PolicyScratchNonRoot:
 		return []check.Check{
@@ -722,6 +724,7 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 			&containerpol.HasNoProhibitedLabelsCheck{},
 			&containerpol.RunAsNonRootCheck{},
 			&containerpol.HasProhibitedContainerName{},
+			&containerpol.ContainsKernelObjectsCheck{},
 		}, nil
 	case policy.PolicyScratchRoot:
 		return []check.Check{
@@ -731,6 +734,7 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 			&containerpol.HasRequiredLabelsCheck{},
 			&containerpol.HasNoProhibitedLabelsCheck{},
 			&containerpol.HasProhibitedContainerName{},
+			&containerpol.ContainsKernelObjectsCheck{},
 		}, nil
 	case policy.PolicyKonflux:
 		return []check.Check{

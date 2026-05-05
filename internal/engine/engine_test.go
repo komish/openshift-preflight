@@ -360,6 +360,7 @@ var _ = Describe("Check Name Queries", func() {
 			"HasModifiedFiles",
 			"BasedOnUbi",
 			"HasProhibitedContainerName",
+			"ContainsKernelObjects",
 		}),
 		Entry("default operator policy", OperatorPolicy, []string{
 			"ScorecardBasicSpecCheck",
@@ -380,6 +381,7 @@ var _ = Describe("Check Name Queries", func() {
 			"HasNoProhibitedLabels",
 			"RunAsNonRoot",
 			"HasProhibitedContainerName",
+			"ContainsKernelObjects",
 		}),
 		Entry("scratch root container policy", ScratchRootContainerPolicy, []string{
 			"HasLicense",
@@ -388,6 +390,7 @@ var _ = Describe("Check Name Queries", func() {
 			"HasRequiredLabel",
 			"HasNoProhibitedLabels",
 			"HasProhibitedContainerName",
+			"ContainsKernelObjects",
 		}),
 		Entry("root container policy", RootExceptionContainerPolicy, []string{
 			"HasLicense",
@@ -399,6 +402,7 @@ var _ = Describe("Check Name Queries", func() {
 			"HasModifiedFiles",
 			"BasedOnUbi",
 			"HasProhibitedContainerName",
+			"ContainsKernelObjects",
 		}),
 		Entry("konflux container policy", KonfluxContainerPolicy, []string{
 			"HasLicense",
